@@ -518,9 +518,29 @@ function dirOk(s,k,seg){ const d=s.dirMap?s.dirMap[k]:null; if(!d) return true;
 function hittable(s){ const V=new Set(); for(const rp of s.rail){ const h=look(s.g,rp); if(!h) continue;
     if(isDirt(h.v)){ if(dirOk(s,h.y*s.W+h.x,rp.seg)) V.add(baseC(h.v)); } else V.add(baseC(h.v)); }
   return V; }
+// 무지개 광부를 다 써도 못 구하는 두더지가 있나(보수적으로 — 확실할 때만 true). 예전엔 무지개 광부가 남아 있고 젤리가 하나라도 보이면
+// 무조건 "아직 안 막힘"이라 판이 영영 안 끝났다(사용자 실기기 2026-10-05 미리보기 500번: 바닥 두더지 왼쪽 주황 3칸이 쌓여 있어 하나를 없애도
+// 위 칸이 내려와 다시 막고, 위는 바위 — 무지개 2명으로는 불가능). 두더지가 고정(아래가 암반·판 바닥)일 때만, 방향마다 레일까지 치워야 할 칸 수를 센다.
+// 옆줄은 그 칸 위로 쌓인 칸까지(없애면 내려와 다시 막음 — 그 칸이 바닥·암반 위일 때만 셈), 남은 광부 색 젤리는 0(그들이 캘 수도 있음),
+// 바위는 무지개로 못 치우므로 불가능. 폭탄이 판에 있으면 바위·암반이 깨질 수 있어 판단하지 않는다.
+function rainbowHopeless(s){ const g=s.g,W=s.W,H=s.H;
+  if(g.some(r=>r.includes('!'))) return false;
+  const have=new Set([...s.slots,...s.pend,...s.carts].map(m=>m.c)); s.cols.forEach((c,i)=>c.slice(s.ptr[i]).forEach(m=>have.add(m.c)));
+  const shots=s.pocket+[...s.pend,...s.carts].filter(m=>m.c==='*').length;
+  const cost=v=>v==='.'?0:(v==='#'||v==='X'||isMole(v))?Infinity:have.has(baseC(v))?0:1;
+  const fixedBelow=(x,y)=>y+1>=H||g[y+1][x]==='X';
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ if(!isMole(g[y][x])||!fixedBelow(x,y)) continue; let best=Infinity;
+    for(const dx of [-1,1]){ let n=0;
+      for(let cx=x+dx;cx>=0&&cx<W&&n<Infinity;cx+=dx){ n+=cost(g[y][cx]);
+        if(g[y][cx]!=='.'&&g[y][cx]!=='X'&&!isGem(g[y][cx])&&fixedBelow(cx,y))
+          for(let yy=y-1;yy>=0&&g[yy][cx]!=='.'&&g[yy][cx]!=='X'&&!isGem(g[yy][cx]);yy--) n+=cost(g[yy][cx]); }
+      best=Math.min(best,n); }
+    { let n=0; for(let yy=y-1;yy>=0;yy--) n+=cost(g[yy][x]); best=Math.min(best,n); }
+    if(best>shots) return true; }
+  return false; }
 function canEverWin(s){ const V=hittable(s), all=[...s.slots,...s.pend,...s.carts];
-  // 주머니 보석이 있거나 무지개 광부가 도는 중이면, 흙이나 두더지가 하나라도 보이는 한 아직 막힌 게 아니다.
-  if((s.pocket>0||all.some(m=>m.c==='*')) && [...V].some(v=>DIRT.includes(v)||isMole(v))) return true; s.cols.forEach((c,i)=>all.push(...c.slice(s.ptr[i])));
+  // 주머니 보석이 있거나 무지개 광부가 도는 중이면, 흙이나 두더지가 하나라도 보이는 한 아직 막힌 게 아니다(무지개로도 못 구하는 게 확실하면 막힘).
+  if((s.pocket>0||all.some(m=>m.c==='*')) && [...V].some(v=>DIRT.includes(v)||isMole(v))) return !rainbowHopeless(s); s.cols.forEach((c,i)=>all.push(...c.slice(s.ptr[i])));
   // 폭약이 보이면 어떤 광부든 지나가며 터뜨리니 판이 바뀐다 — 막힘 아님.
   if(V.has('M') || (V.has('!')&&all.length) || all.some(m=>V.has(m.c))) return true;
   return Object.keys(LOCK).some(d=>V.has(d) && all.some(m=>m.c===LOCK[d])); }
@@ -584,7 +604,7 @@ function step(s){ if(s.result) return []; const ev=[], g=s.g, W=s.W, H=s.H, Lr=s
     else if(!Object.keys(s.wob).length && !Object.keys(s.crack).length){
       const all=[...s.slots,...s.pend,...s.carts]; s.cols.forEach((c,i)=>all.push(...c.slice(s.ptr[i])));
       if(!all.length){ s.result='stuck'; s.why={k:'empty'}; }
-      else if(!canEverWin(s)){ s.result='stuck'; { const cs=[...new Set(all.map(m=>m.c))], V0=visible(s); s.why={k:cs.some(c=>V0.has(c))?'dirlock':'unseen',colors:cs}; } } } }
+      else if(!canEverWin(s)){ s.result='stuck'; { const cs=[...new Set(all.map(m=>m.c))], V0=visible(s); s.why={k:s.pocket>0?'rainbowShort':cs.some(c=>V0.has(c))?'dirlock':'unseen',colors:cs}; } } } }
 
   if(s.result==='jam'&&!s.why) s.why={k:'jam',slotsEmpty:[...s.slots,s.jamC].filter(m=>!m.last).map(m=>m.c)};
   return ev; }
@@ -619,6 +639,7 @@ function explain(s){ const w=s.why; if(!w) return '';
   if(w.k==='sealed') return '바위가 떨어져 두더지 가는 길을 막아 버렸어요.';
   if(w.k==='dirlock') return '남은 '+w.colors.map(c=>CNK[c]).join('·')+' 젤리가 보이긴 하는데, 팻말 방향이 안 맞아 캘 수 있는 레일이 없어요.';
   if(w.k==='unseen') return '남은 '+w.colors.map(c=>CNK[c]).join('·')+' 광부가 캘 젤리가 레일에서 하나도 안 보여요.';
+  if(w.k==='rainbowShort') return '무지개 광부를 다 써도 두더지까지 길을 열 수 없어요.';
   if(w.k==='empty') return '광부를 다 썼는데 두더지까지 길이 열리지 않았어요.';
   if(w.k==='boom') return '폭탄이 두더지 옆에서 터져 버렸어요.';
   return ''; }
