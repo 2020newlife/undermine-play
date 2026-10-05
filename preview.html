@@ -1177,7 +1177,15 @@ function updateParHud(){ const L=LEVELS[LV], hud=$('parHud'); if(!hud) return;
 }
 // 무지개 광부 주머니 배지(§9) — 0명이면 아예 숨긴다(상단에서 조작 영역으로 옮기며 "뭔지 몰랐다"는
 // 지적이 있어, 평소엔 안 보이다가 실제로 생겼을 때만 나타나게 해 존재 자체가 신호가 되게 했다).
-function updatePocketBadge(){ const btn=$('pocket'); if(!btn) return; $('pocketN').textContent=s.pocket; btn.style.display=s.pocket>0?'':'none'; }
+function updatePocketBadge(){ const btn=$('pocket'); if(!btn) return; $('pocketN').textContent=s.pocket; btn.style.display=s.pocket>0?'':'none'; rainbowOnlyHint(btn); }
+// 무지개 광부만 판을 살릴 수 있는 상태 알림 — 남은 광부로는 칠 게 없는데 주머니 무지개 광부가 있으면 sim은 막힘을 선언하지 않는다.
+// 화면엔 아무 신호가 없어 "못 끝내는데 게임이 안 끝난다, 오류 같다"(사용자 실기기 2026-10-05, 미리보기 500번). 버튼을 깜빡이고 한 번 안내한다.
+let rbPulse=null, rbHinted=null;
+function rainbowOnlyHint(btn){
+  const only=!s.result&&s.pocket>0&&!s.carts.length&&!s.pend.length&&!Object.keys(s.wob).length&&!canEverWin({...s,pocket:0});
+  if(only&&!rbPulse){ rbPulse=btn.animate([{transform:'scale(1)'},{transform:'scale(1.18)'},{transform:'scale(1)'}],{duration:700,iterations:Infinity}); }
+  if(!only&&rbPulse){ rbPulse.cancel(); rbPulse=null; }
+  if(only&&rbHinted!==s){ rbHinted=s; floatText('무지개 광부로 젤리를 골라 캐 보세요!',center(btn)); } }
 
 function isLaunchReady(src) {
   if (!s || s.result) return false;
@@ -1390,7 +1398,7 @@ function tick(){
   const snap={}; for(const c of s.carts) snap[c.id]=c.pos;
   const ev=step(s); from={}; for(const c of s.carts) from[c.id]=snap[c.id]??c.pos; lastTick=performance.now();
   tel.ticks++; tel.cartTicks+=s.carts.length; if(!s.carts.length&&!s.pend.length&&!Object.keys(s.wob).length) tel.idle++;
-  handle(ev);
+  handle(ev); if(s.pocket>0) rainbowOnlyHint($('pocket'));   // 흔들림이 가라앉은 뒤에도 알림 상태를 다시 본다
   // 막힘 사전 경고
   const Lr=s.rail.length, danger=!s.result&&s.slots.length>=s.maxSlots-1&&s.carts.some(c=>c.n>0&&c.pos>=Lr-7);
   $('slots').classList.toggle('alarm',danger);
